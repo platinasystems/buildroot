@@ -1,0 +1,73 @@
+From f53bde6e80f29df816f7e049acb23b5927feb940 Mon Sep 17 00:00:00 2001
+From: Nico Huber <nico.huber@secunet.com>
+Date: Wed, 4 May 2016 10:51:44 +0000
+Subject: [PATCH 1011/1016] Fix linking with libpayload
+
+o flashbuses_to_text() is a cli function and should actually be moved
+  or not be called from flashrom.c.
+o I couldn't find any libc that defines HAVE_STRNLEN.
+
+Signed-off-by: Nico Huber <nico.huber@secunet.com>
+---
+ flash.h    | 2 +-
+ flashrom.c | 9 ++++++---
+ helpers.c  | 2 +-
+ 3 files changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/flash.h b/flash.h
+index 05cb59b..765ae4f 100644
+--- a/flash.h
++++ b/flash.h
+@@ -262,7 +262,7 @@ void tolower_string(char *str);
+ #ifdef __MINGW32__
+ char* strtok_r(char *str, const char *delim, char **nextp);
+ #endif
+-#if defined(__DJGPP__) || !defined(HAVE_STRNLEN)
++#if defined(__DJGPP__)
+ size_t strnlen(const char *str, size_t n);
+ #endif
+ 
+diff --git a/flashrom.c b/flashrom.c
+index 0fcbab8..579376a 100644
+--- a/flashrom.c
++++ b/flashrom.c
+@@ -1166,7 +1166,7 @@ int probe_flash(struct registered_master *mst, int startchip, struct flashctx *f
+ {
+ 	const struct flashchip *chip;
+ 	enum chipbustype buses_common;
+-	char *tmp;
++	char *tmp = NULL;
+ 
+ 	for (chip = flashchips + startchip; chip && chip->name; chip++) {
+ 		if (chip_to_probe && strcmp(chip->name, chip_to_probe) != 0)
+@@ -1248,9 +1248,12 @@ notfound:
+ 		return -1;
+ 
+ 
++#ifndef __LIBPAYLOAD__
+ 	tmp = flashbuses_to_text(flash->chip->bustype);
+-	msg_cinfo("%s %s flash chip \"%s\" (%d kB, %s) ", force ? "Assuming" : "Found",
+-		  flash->chip->vendor, flash->chip->name, flash->chip->total_size, tmp);
++#endif
++	msg_cinfo("%s %s flash chip \"%s\" (%d kB%s%s) ", force ? "Assuming" : "Found",
++		  flash->chip->vendor, flash->chip->name, flash->chip->total_size,
++		  tmp ? ", " : "", tmp ? tmp : "");
+ 	free(tmp);
+ #if CONFIG_INTERNAL == 1
+ 	if (programmer_table[programmer].map_flash_region == physmap)
+diff --git a/helpers.c b/helpers.c
+index f6eae46..7a146c3 100644
+--- a/helpers.c
++++ b/helpers.c
+@@ -92,7 +92,7 @@ char* strtok_r(char *str, const char *delim, char **nextp)
+ #endif
+ 
+ /* There is no strnlen in DJGPP */
+-#if defined(__DJGPP__) || !defined(HAVE_STRNLEN)
++#if defined(__DJGPP__)
+ size_t strnlen(const char *str, size_t n)
+ {
+ 	size_t i;
+-- 
+2.7.4
+

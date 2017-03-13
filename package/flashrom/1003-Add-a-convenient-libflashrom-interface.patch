@@ -1,0 +1,782 @@
+From 46f32645b480249a4933ff2d1099ec3b2d6eb906 Mon Sep 17 00:00:00 2001
+From: Nico Huber <nico.huber@secunet.com>
+Date: Wed, 4 May 2016 10:51:36 +0000
+Subject: [PATCH 1003/1016] Add a convenient libflashrom interface
+
+This adds a minimal libflashrom interface based on the draft in the
+wiki. While the glue code in libflashrom.c is build on top of the
+existing code instead on overhauling it, the interface in libflashrom.h
+is supposed to be stable. So we can keep the interface and adapt
+internals later if favoured, without breaking clients.
+
+A new make target, libinstall, is also added. It installs libflashrom.a
+and libflashrom.h in lib/ and include/ dirs respectively.
+
+This commit breaks build of the cli. It will be fixed with a follow-up
+commit.
+
+v2: Rebase and fixes by Anton Kochkov.
+
+v3: o fl_image_*() rewritten with layout support (touch only included regions).
+    o Moved read/erase/write/verify operations to flashrom.c.
+    o Added layout pointer and flags to the flash context.
+
+Signed-off-by: Nico Huber <nico.huber@secunet.com>
+---
+ Makefile      |   8 +-
+ flash.h       |   6 ++
+ flashrom.c    | 293 +++++++++++++++++++++++++++++++++++++++++++++++++++++
+ libflashrom.c | 319 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ libflashrom.h |  70 +++++++++++++
+ 5 files changed, 695 insertions(+), 1 deletion(-)
+ create mode 100644 libflashrom.c
+ create mode 100644 libflashrom.h
+
+diff --git a/Makefile b/Makefile
+index 4ebde1e..01a179d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -519,7 +519,7 @@ CHIP_OBJS = jedec.o stm50.o w39.o w29ee011.o \
+ ###############################################################################
+ # Library code.
+ 
+-LIB_OBJS = layout.o flashrom.o udelay.o programmer.o helpers.o
++LIB_OBJS = libflashrom.o layout.o flashrom.o udelay.o programmer.o helpers.o
+ 
+ ###############################################################################
+ # Frontend related stuff.
+@@ -1357,6 +1357,12 @@ install: $(PROGRAM)$(EXEC_SUFFIX) $(PROGRAM).8
+ 	$(INSTALL) -m 0755 $(PROGRAM)$(EXEC_SUFFIX) $(DESTDIR)$(PREFIX)/sbin
+ 	$(INSTALL) -m 0644 $(PROGRAM).8 $(DESTDIR)$(MANDIR)/man8
+ 
++libinstall: libflashrom.a libflashrom.h
++	mkdir -p $(DESTDIR)$(PREFIX)/lib
++	$(INSTALL) -m 0644 libflashrom.a $(DESTDIR)$(PREFIX)/lib
++	mkdir -p $(DESTDIR)$(PREFIX)/include
++	$(INSTALL) -m 0644 libflashrom.h $(DESTDIR)$(PREFIX)/include
++
+ export: $(PROGRAM).8
+ 	@rm -rf $(EXPORTDIR)/flashrom-$(RELEASENAME)
+ 	@svn export -r BASE . $(EXPORTDIR)/flashrom-$(RELEASENAME)
+diff --git a/flash.h b/flash.h
+index be1134a..5544160 100644
+--- a/flash.h
++++ b/flash.h
+@@ -217,6 +217,12 @@ struct flashctx {
+ 	chipaddr virtual_registers;
+ 	struct registered_master *mst;
+ 	const struct fl_layout *layout;
++	struct {
++		bool force;
++		bool force_boardmismatch;
++		bool verify_after_write;
++		bool verify_whole_chip;
++	} flags;
+ };
+ 
+ /* Timing used in probe routines. ZERO is -2 to differentiate between an unset
+diff --git a/flashrom.c b/flashrom.c
+index a0948b9..b580f0e 100644
+--- a/flashrom.c
++++ b/flashrom.c
+@@ -2460,3 +2460,296 @@ out:
+ 	free(newcontents);
+ 	return ret;
+ }
++
++/** @private */
++static int prepare_flash_access(struct flashctx *const flash,
++				const bool read_it, const bool write_it,
++				const bool erase_it, const bool verify_it)
++{
++	if (chip_safety_check(flash, flash->flags.force, read_it, write_it, erase_it, verify_it)) {
++		msg_cerr("Aborting.\n");
++		return 1;
++	}
++
++	if (flash->layout == get_global_layout() && normalize_romentries(flash)) {
++		msg_cerr("Requested regions can not be handled. Aborting.\n");
++		return 1;
++	}
++
++	if (map_flash(flash) != 0)
++		return 1;
++
++	/* Given the existence of read locks, we want to unlock for read,
++	   erase and write. */
++	if (flash->chip->unlock)
++		flash->chip->unlock(flash);
++
++	return 0;
++}
++
++/**
++ * @addtogroup fl-flash
++ * @{
++ */
++
++/**
++ * @brief Erase the specified ROM chip.
++ *
++ * If a layout is set in the given flash context, only included regions
++ * will be erased.
++ *
++ * @param flashctx The context of the flash chip to erase.
++ * @return 0 on success.
++ */
++int fl_flash_erase(struct flashctx *const flashctx)
++{
++	if (prepare_flash_access(flashctx, false, false, true, false))
++		return 1;
++
++	const int ret = erase_by_layout(flashctx);
++
++	unmap_flash(flashctx);
++
++	return ret;
++}
++
++/** @} */ /* end fl-flash */
++
++/**
++ * @defgroup fl-ops Operations
++ * @{
++ */
++
++/**
++ * @brief Read the current image from the specified ROM chip.
++ *
++ * If a layout is set in the specified flash context, only included regions
++ * will be read.
++ *
++ * @param flashctx The context of the flash chip.
++ * @param buffer Target buffer to write image to.
++ * @param buffer_len Size of target buffer in bytes.
++ * @return 0 on success,
++ *         2 if buffer_len is to short for the flash chip's contents,
++ *         or 1 on any other failure.
++ */
++int fl_image_read(struct flashctx *const flashctx, void *const buffer, const size_t buffer_len)
++{
++	const size_t flash_size = flashctx->chip->total_size * 1024;
++
++	if (flash_size > buffer_len)
++		return 2;
++
++	if (prepare_flash_access(flashctx, true, false, false, false))
++		return 1;
++
++	msg_cinfo("Reading flash... ");
++
++	int ret = 1;
++	if (read_by_layout(flashctx, buffer)) {
++		msg_cerr("Read operation failed!\n");
++		msg_cinfo("FAILED.\n");
++		goto _unmap_ret;
++	}
++	msg_cinfo("done.\n");
++	ret = 0;
++
++_unmap_ret:
++	unmap_flash(flashctx);
++	return ret;
++}
++
++/** @private */
++static void combine_image_by_layout(const struct flashctx *const flashctx,
++				    uint8_t *const newcontents, const uint8_t *const oldcontents)
++{
++	struct fl_layout_single fallback_layout;
++	const struct fl_layout *const layout = get_layout(flashctx, &fallback_layout);
++
++	size_t i;
++	for (i = 0; i < layout->num_entries; ++i) {
++		if (layout->entries[i].included)
++			continue;
++
++		const chipoff_t region_start	= layout->entries[i].start;
++		const chipsize_t region_len	= layout->entries[i].end - layout->entries[i].start + 1;
++
++		memcpy(newcontents + region_start, oldcontents + region_start, region_len);
++	}
++}
++
++/**
++ * @brief Write the specified image to the ROM chip.
++ *
++ * If a layout is set in the specified flash context, only erase blocks that
++ * lap included regions will be touched.
++ *
++ * @param flashctx The context of the flash chip.
++ * @param buffer Source buffer to read image from.
++ * @param buffer_len Size of source buffer in bytes.
++ * @return 0 on success,
++ *         4 if buffer_len doesn't match the size of the flash chip,
++ *         3 if write was tried but nothing has changed,
++ *         2 if write failed and flash contents changed,
++ *         or 1 on any other failure.
++ */
++int fl_image_write(struct flashctx *const flashctx, void *const buffer, const size_t buffer_len)
++{
++	const size_t flash_size = flashctx->chip->total_size * 1024;
++	const bool verify_all = flashctx->flags.verify_whole_chip;
++	const bool verify = flashctx->flags.verify_after_write;
++
++	if (buffer_len != flash_size)
++		return 4;
++
++	int ret = 1;
++
++	uint8_t *const newcontents = buffer;
++	uint8_t *const curcontents = malloc(flash_size);
++	uint8_t *oldcontents = NULL;
++	if (verify_all)
++		oldcontents = malloc(flash_size);
++	if (!curcontents || (verify_all && !oldcontents)) {
++		msg_gerr("Out of memory!\n");
++		goto _free_ret;
++	}
++
++#if CONFIG_INTERNAL == 1
++	if (programmer == PROGRAMMER_INTERNAL && cb_check_image(newcontents, flash_size) < 0) {
++		if (flashctx->flags.force_boardmismatch) {
++			msg_pinfo("Proceeding anyway because user forced us to.\n");
++		} else {
++			msg_perr("Aborting. You can override this with "
++				 "-p internal:boardmismatch=force.\n");
++			goto _free_ret;
++		}
++	}
++#endif
++
++	if (prepare_flash_access(flashctx, false, true, false, verify))
++		goto _free_ret;
++
++	/* Read the whole chip to be able to check whether regions need to be
++	 * erased and to give better diagnostics in case write fails.
++	 * The alternative is to read only the regions which are to be
++	 * preserved, but in that case we might perform unneeded erase which
++	 * takes time as well.
++	 */
++	msg_cinfo("Reading old flash chip contents... ");
++	if (verify_all) {
++		if (flashctx->chip->read(flashctx, oldcontents, 0, flash_size)) {
++			msg_cinfo("FAILED.\n");
++			goto _unmap_ret;
++		}
++		memcpy(curcontents, oldcontents, flash_size);
++	} else {
++		if (read_by_layout(flashctx, curcontents)) {
++			msg_cinfo("FAILED.\n");
++			goto _unmap_ret;
++		}
++	}
++	msg_cinfo("done.\n");
++
++	if (write_by_layout(flashctx, curcontents, newcontents)) {
++		msg_cerr("Uh oh. Erase/write failed. ");
++		ret = 2;
++		if (verify_all) {
++			msg_cerr("Checking if anything has changed.\n");
++			msg_cinfo("Reading current flash chip contents... ");
++			if (!flashctx->chip->read(flashctx, curcontents, 0, flash_size)) {
++				msg_cinfo("done.\n");
++				if (!memcmp(oldcontents, curcontents, flash_size)) {
++					nonfatal_help_message();
++					goto _unmap_ret;
++				}
++				msg_cerr("Apparently at least some data has changed.\n");
++			} else
++				msg_cerr("Can't even read anymore!\n");
++			emergency_help_message();
++			goto _unmap_ret;
++		} else
++			msg_cerr("\n");
++		emergency_help_message();
++		goto _unmap_ret;
++	}
++
++	/* Verify only if we actually changed something. */
++	if (verify && !all_skipped) {
++		const struct fl_layout *const layout_bak = flashctx->layout;
++
++		msg_cinfo("Verifying flash... ");
++
++		/* Work around chips which need some time to calm down. */
++		programmer_delay(1000*1000);
++
++		if (verify_all) {
++			combine_image_by_layout(flashctx, newcontents, oldcontents);
++			flashctx->layout = NULL;
++		}
++		ret = verify_by_layout(flashctx, curcontents, newcontents);
++		flashctx->layout = layout_bak;
++		/* If we tried to write, and verification now fails, we
++		 * might have an emergency situation.
++		 */
++		if (ret)
++			emergency_help_message();
++		else
++			msg_cinfo("VERIFIED.\n");
++	} else {
++		/* We didn't change anything. */
++		ret = 0;
++	}
++
++_unmap_ret:
++	unmap_flash(flashctx);
++_free_ret:
++	free(oldcontents);
++	free(curcontents);
++	return ret;
++}
++
++/**
++ * @brief Verify the ROM chip's contents with the specified image.
++ *
++ * If a layout is set in the specified flash context, only included regions
++ * will be verified.
++ *
++ * @param flashctx The context of the flash chip.
++ * @param buffer Source buffer to verify with.
++ * @param buffer_len Size of source buffer in bytes.
++ * @return 0 on success,
++ *         3 if the chip's contents don't match,
++ *         2 if buffer_len doesn't match the size of the flash chip,
++ *         or 1 on any other failure.
++ */
++int fl_image_verify(struct flashctx *const flashctx, const void *const buffer, const size_t buffer_len)
++{
++	const size_t flash_size = flashctx->chip->total_size * 1024;
++
++	if (buffer_len != flash_size)
++		return 2;
++
++	const uint8_t *const newcontents = buffer;
++	uint8_t *const curcontents = malloc(flash_size);
++	if (!curcontents) {
++		msg_gerr("Out of memory!\n");
++		return 1;
++	}
++
++	int ret = 1;
++
++	if (prepare_flash_access(flashctx, false, false, false, true))
++		goto _free_ret;
++
++	msg_cinfo("Verifying flash... ");
++	ret = verify_by_layout(flashctx, curcontents, newcontents);
++	if (!ret)
++		msg_cinfo("VERIFIED.\n");
++
++	unmap_flash(flashctx);
++_free_ret:
++	free(curcontents);
++	return ret;
++}
++
++/** @} */ /* end fl-ops */
+diff --git a/libflashrom.c b/libflashrom.c
+new file mode 100644
+index 0000000..eab9548
+--- /dev/null
++++ b/libflashrom.c
+@@ -0,0 +1,319 @@
++/*
++ * This file is part of the flashrom project.
++ *
++ * Copyright (C) 2012, 2016 secunet Security Networks AG
++ * (Written by Nico Huber <nico.huber@secunet.com> for secunet)
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
++ */
++/**
++ * @mainpage
++ *
++ * Have a look at the Modules section for a function reference.
++ */
++
++#include <stdlib.h>
++#include <string.h>
++#include <stdarg.h>
++
++#include "flash.h"
++#include "programmer.h"
++#include "layout.h"
++#include "libflashrom.h"
++
++/**
++ * @defgroup fl-general General
++ * @{
++ */
++
++/** Pointer to log callback function. */
++static fl_log_callback_t *fl_log_callback = NULL;
++
++/**
++ * @brief Initialize libflashrom.
++ *
++ * @param perform_selfcheck If not zero, perform a self check.
++ * @return 0 on success
++ */
++int fl_init(const int perform_selfcheck)
++{
++	if (perform_selfcheck && selfcheck())
++		return 1;
++	myusec_calibrate_delay();
++	return 0;
++}
++
++/**
++ * @brief Shut down libflashrom.
++ * @return 0 on success
++ */
++int fl_shutdown(void)
++{
++	return 0; /* TODO: nothing to do? */
++}
++
++/* TODO: fl_set_loglevel()? do we need it?
++         For now, let the user decide in his callback. */
++
++/**
++ * @brief Set the log callback function.
++ *
++ * Set a callback function which will be invoked whenever libflashrom wants
++ * to output messages. This allows frontends to do whatever they see fit with
++ * such messages, e.g. write them to syslog, or to file, or print them in a
++ * GUI window, etc.
++ *
++ * @param log_callback Pointer to the new log callback function.
++ */
++void fl_set_log_callback(fl_log_callback_t *const log_callback)
++{
++	fl_log_callback = log_callback;
++}
++/** @private */
++int print(const enum msglevel level, const char *const fmt, ...)
++{
++	if (fl_log_callback) {
++		int ret;
++		va_list args;
++		va_start(args, fmt);
++		ret = fl_log_callback(level, fmt, args);
++		va_end(args);
++		return ret;
++	}
++	return 0;
++}
++
++/** @} */ /* end fl-general */
++
++
++
++/**
++ * @defgroup fl-query Querying
++ * @{
++ */
++
++/* TBD */
++
++/** @} */ /* end fl-query */
++
++
++
++/**
++ * @defgroup fl-prog Programmers
++ * @{
++ */
++
++/**
++ * @brief Initialize the specified programmer.
++ *
++ * @param prog_name Name of the programmer to initialize.
++ * @param prog_param Pointer to programmer specific parameters.
++ * @return 0 on success
++ */
++int fl_programmer_init(const char *const prog_name, const char *const prog_param)
++{
++	unsigned prog;
++
++	for (prog = 0; prog < PROGRAMMER_INVALID; prog++) {
++		if (strcmp(prog_name, programmer_table[prog].name) == 0)
++			break;
++	}
++	if (prog >= PROGRAMMER_INVALID) {
++		msg_ginfo("Error: Unknown programmer \"%s\". Valid choices are:\n", prog_name);
++		list_programmers_linebreak(0, 80, 0);
++		return 1;
++	}
++	return programmer_init(prog, prog_param);
++}
++
++/**
++ * @brief Shut down the initialized programmer.
++ *
++ * @return 0 on success
++ */
++int fl_programmer_shutdown(void)
++{
++	return programmer_shutdown();
++}
++
++/* TODO: fl_programmer_capabilities()? */
++
++/** @} */ /* end fl-prog */
++
++
++
++/**
++ * @defgroup fl-flash Flash chips
++ * @{
++ */
++
++/**
++ * @brief Probe for a flash chip.
++ *
++ * Probes for a flash chip and returns a flash context, that can be used
++ * later with flash chip and @ref fl-ops "image operations", if exactly one
++ * matching chip is found.
++ *
++ * @param[out] flashctx Points to a pointer of type fl_flashctx_t that will
++ *                      be set if exactly one chip is found. *flashctx has
++ *                      to be freed by the caller with @ref fl_flash_release.
++ * @param[in] chip_name Name of a chip to probe for, or NULL to probe for
++ *                      all known chips.
++ * @return 0 on success,
++ *         3 if multiple chips were found,
++ *         2 if no chip was found,
++ *         or 1 on any other error.
++ */
++int fl_flash_probe(struct flashctx **const flashctx, const char *const chip_name)
++{
++	int i, ret = 2;
++	struct flashctx second_flashctx = { 0, };
++
++	chip_to_probe = chip_name; /* chip_to_probe is global in flashrom.c */
++
++	*flashctx = malloc(sizeof(**flashctx));
++	if (!*flashctx)
++		return 1;
++	memset(*flashctx, 0, sizeof(**flashctx));
++
++	for (i = 0; i < registered_master_count; ++i) {
++		int flash_idx = -1;
++		if (!ret || (flash_idx = probe_flash(&registered_masters[i], 0, *flashctx, 0)) != -1) {
++			ret = 0;
++			/* We found one chip, now check that there is no second match. */
++			if (probe_flash(&registered_masters[i], flash_idx + 1, &second_flashctx, 0) != -1) {
++				ret = 3;
++				break;
++			}
++		}
++	}
++	if (ret) {
++		free(*flashctx);
++		*flashctx = NULL;
++	}
++	return ret;
++}
++
++/**
++ * @brief Returns the size of the specified flash chip in bytes.
++ *
++ * @param flashctx The queried flash context.
++ * @return Size of flash chip in bytes.
++ */
++size_t fl_flash_getsize(const struct flashctx *const flashctx)
++{
++	return flashctx->chip->total_size << 10;
++}
++
++/**
++ * @brief Free a flash context.
++ *
++ * @param flashctx Flash context to free.
++ */
++void fl_flash_release(struct flashctx *const flashctx)
++{
++	free(flashctx);
++}
++
++/**
++ * @brief Set a flag in the given flash context.
++ *
++ * @param flashctx Flash context to alter.
++ * @param flag	   Flag that is to be set / cleared.
++ * @param value	   Value to set.
++ */
++void fl_flag_set(fl_flashctx_t *const flashctx, const enum fl_flag flag, const bool value)
++{
++	switch (flag) {
++		case FL_FLAG_FORCE:			flashctx->flags.force = value; break;
++		case FL_FLAG_FORCE_BOARDMISMATCH:	flashctx->flags.force_boardmismatch = value; break;
++		case FL_FLAG_VERIFY_AFTER_WRITE:	flashctx->flags.verify_after_write = value; break;
++		case FL_FLAG_VERIFY_WHOLE_CHIP:		flashctx->flags.verify_whole_chip = value; break;
++	}
++}
++
++/**
++ * @brief Return the current value of a flag in the given flash context.
++ *
++ * @param flashctx Flash context to read from.
++ * @param flag	   Flag to be read.
++ * @return Current value of the flag.
++ */
++bool fl_flag_get(const fl_flashctx_t *const flashctx, const enum fl_flag flag)
++{
++	switch (flag) {
++		case FL_FLAG_FORCE:			return flashctx->flags.force;
++		case FL_FLAG_FORCE_BOARDMISMATCH:	return flashctx->flags.force_boardmismatch;
++		case FL_FLAG_VERIFY_AFTER_WRITE:	return flashctx->flags.verify_after_write;
++		case FL_FLAG_VERIFY_WHOLE_CHIP:		return flashctx->flags.verify_whole_chip;
++		default:				return false;
++	}
++}
++
++/** @} */ /* end fl-flash */
++
++
++
++/**
++ * @defgroup fl-layout Layout handling
++ * @{
++ */
++
++/**
++ * @brief Mark given region as included.
++ *
++ * @param layout The layout to alter.
++ * @param name   The name of the region to include.
++ *
++ * @return 0 on success,
++ *         1 if the given name can't be found.
++ */
++int fl_layout_include_region(fl_layout_t *const layout, const char *name)
++{
++	size_t i;
++	for (i = 0; i < layout->num_entries; ++i) {
++		if (!strcmp(layout->entries[i].name, name)) {
++			layout->entries[i].included = true;
++			return 0;
++		}
++	}
++	return 1;
++}
++
++/**
++ * @brief Free a layout.
++ *
++ * @param layout Layout to free.
++ */
++void fl_layout_release(struct fl_layout *const layout)
++{
++	free(layout);
++}
++
++/**
++ * @brief Set the active layout for a flash context.
++ *
++ * Note: This just sets a pointer. The caller must not release the layout
++ *       as long as he uses it through the given flash context.
++ *
++ * @param flashctx Flash context whose layout will be set.
++ * @param layout   Layout to bet set.
++ */
++void fl_layout_set(struct flashctx *const flashctx, const struct fl_layout *const layout)
++{
++	flashctx->layout = layout;
++}
++
++/** @} */ /* end fl-layout */
+diff --git a/libflashrom.h b/libflashrom.h
+new file mode 100644
+index 0000000..af56bc8
+--- /dev/null
++++ b/libflashrom.h
+@@ -0,0 +1,70 @@
++/*
++ * This file is part of the flashrom project.
++ *
++ * Copyright (C) 2012 secunet Security Networks AG
++ * (Written by Nico Huber <nico.huber@secunet.com> for secunet)
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
++ */
++
++#ifndef __LIBFLASHROM_H__
++#define __LIBFLASHROM_H__ 1
++
++#include <stdarg.h>
++
++int fl_init(int perform_selfcheck);
++int fl_shutdown(void);
++/** @ingroup fl-general */
++enum fl_log_level { /* This has to match enum msglevel. */
++	FL_MSG_ERROR	= 0,
++	FL_MSG_INFO	= 1,
++	FL_MSG_DEBUG	= 2,
++	FL_MSG_DEBUG2	= 3,
++	FL_MSG_SPEW	= 4,
++};
++/** @ingroup fl-general */
++typedef int(fl_log_callback_t)(enum fl_log_level, const char *format, va_list);
++void fl_set_log_callback(fl_log_callback_t *);
++
++int fl_programmer_init(const char *prog_name, const char *prog_params);
++int fl_programmer_shutdown(void);
++
++struct flashctx;
++typedef struct flashctx fl_flashctx_t;
++int fl_flash_probe(fl_flashctx_t **, const char *chip_name);
++size_t fl_flash_getsize(const fl_flashctx_t *);
++int fl_flash_erase(fl_flashctx_t *);
++void fl_flash_release(fl_flashctx_t *);
++
++enum fl_flag {
++	FL_FLAG_FORCE,
++	FL_FLAG_FORCE_BOARDMISMATCH,
++	FL_FLAG_VERIFY_AFTER_WRITE,
++	FL_FLAG_VERIFY_WHOLE_CHIP,
++};
++void fl_flag_set(fl_flashctx_t *, enum fl_flag, bool value);
++bool fl_flag_get(const fl_flashctx_t *, enum fl_flag);
++
++int fl_image_read(fl_flashctx_t *, void *buffer, size_t buffer_len);
++int fl_image_write(fl_flashctx_t *, const void *buffer, size_t buffer_len);
++int fl_image_verify(fl_flashctx_t *, const void *buffer, size_t buffer_len);
++
++struct fl_layout;
++typedef struct fl_layout fl_layout_t;
++int fl_layout_include_region(fl_layout_t *, const char *name);
++void fl_layout_release(fl_layout_t *);
++void fl_layout_set(fl_flashctx_t *, const fl_layout_t *);
++
++#endif				/* !__LIBFLASHROM_H__ */
+-- 
+2.7.4
+

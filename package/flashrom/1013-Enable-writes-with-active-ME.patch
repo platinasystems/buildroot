@@ -1,0 +1,91 @@
+From 9be7d1bd072fd1b16c44b7b8dae2ba548764a446 Mon Sep 17 00:00:00 2001
+From: Nico Huber <nico.huber@secunet.com>
+Date: Wed, 4 May 2016 10:51:46 +0000
+Subject: [PATCH 1013/1016] Enable writes with active ME
+
+At least with the -A,--noverify-all switch, this warning isn't true any
+more. Maybe we want to force -A in that case?
+
+Signed-off-by: Nico Huber <nico.huber@secunet.com>
+---
+ flashrom.8.tmpl |  9 +--------
+ ichspi.c        | 29 -----------------------------
+ 2 files changed, 1 insertion(+), 37 deletions(-)
+
+diff --git a/flashrom.8.tmpl b/flashrom.8.tmpl
+index 02d79e3..c786a86 100644
+--- a/flashrom.8.tmpl
++++ b/flashrom.8.tmpl
+@@ -472,14 +472,7 @@ partitioned in multiple so called "Flash Regions" containing the host firmware,
+ the ME firmware and so on respectively. The flash descriptor can also specify up
+ to 5 so called "Protected Regions", which are freely chosen address ranges
+ independent from the aforementioned "Flash Regions". All of them can be write
+-and/or read protected individually. If flashrom detects such a lock it will
+-disable write support unless the user forces it with the
+-.sp
+-.B "  flashrom \-p internal:ich_spi_force=yes"
+-.sp
+-syntax. If this leads to erase or write accesses to the flash it would most
+-probably bring it into an inconsistent and unbootable state and we will not
+-provide any support in such a case.
++and/or read protected individually.
+ .sp
+ If you have an Intel chipset with an ICH2 or later southbridge and if you want
+ to set specific IDSEL values for a non-default flash chip or an embedded
+diff --git a/ichspi.c b/ichspi.c
+index e1395ee..6821b5d 100644
+--- a/ichspi.c
++++ b/ichspi.c
+@@ -1567,7 +1567,6 @@ int ich_init_spi(struct pci_dev *dev, void *spibar, enum ich_chipset ich_gen)
+ 	uint16_t tmp2;
+ 	uint32_t tmp;
+ 	char *arg;
+-	int ich_spi_force = 0;
+ 	int ich_spi_rw_restricted = 0;
+ 	int desc_valid = 0;
+ 	struct ich_descriptors desc = {{ 0 }};
+@@ -1639,22 +1638,6 @@ int ich_init_spi(struct pci_dev *dev, void *spibar, enum ich_chipset ich_gen)
+ 		}
+ 		free(arg);
+ 
+-		arg = extract_programmer_param("ich_spi_force");
+-		if (arg && !strcmp(arg, "yes")) {
+-			ich_spi_force = 1;
+-			msg_pspew("ich_spi_force enabled.\n");
+-		} else if (arg && !strlen(arg)) {
+-			msg_perr("Missing argument for ich_spi_force.\n");
+-			free(arg);
+-			return ERROR_FATAL;
+-		} else if (arg) {
+-			msg_perr("Unknown argument for ich_spi_force: \"%s\" "
+-				 "(not \"yes\").\n", arg);
+-			free(arg);
+-			return ERROR_FATAL;
+-		}
+-		free(arg);
+-
+ 		tmp2 = mmio_readw(ich_spibar + ICH9_REG_HSFS);
+ 		msg_pdbg("0x04: 0x%04x (HSFS)\n", tmp2);
+ 		prettyprint_ich9_reg_hsfs(tmp2);
+@@ -1704,18 +1687,6 @@ int ich_init_spi(struct pci_dev *dev, void *spibar, enum ich_chipset ich_gen)
+ 			ich_spi_rw_restricted |= ich9_handle_pr(i);
+ 		}
+ 
+-		if (ich_spi_rw_restricted) {
+-			if (!ich_spi_force)
+-				programmer_may_write = 0;
+-			msg_pinfo("Writes have been disabled for safety reasons. You can enforce write\n"
+-				  "support with the ich_spi_force programmer option, but you will most likely\n"
+-				  "harm your hardware! If you force flashrom you will get no support if\n"
+-				  "something breaks. On a few mainboards it is possible to enable write\n"
+-				  "access by setting a jumper (see its documentation or the board itself).\n");
+-			if (ich_spi_force)
+-				msg_pinfo("Continuing with write support because the user forced us to!\n");
+-		}
+-
+ 		tmp = mmio_readl(ich_spibar + ICH9_REG_SSFS);
+ 		msg_pdbg("0x90: 0x%02x (SSFS)\n", tmp & 0xff);
+ 		prettyprint_ich9_reg_ssfs(tmp);
+-- 
+2.7.4
+

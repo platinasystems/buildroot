@@ -1,0 +1,480 @@
+From 794022aaeebb44ed8e305e10751ea7455b39fe1a Mon Sep 17 00:00:00 2001
+From: Nico Huber <nico.huber@secunet.com>
+Date: Wed, 4 May 2016 10:51:43 +0000
+Subject: [PATCH 1010/1016] Add option to read ROM layout from IFD
+
+Add an option (-d|--ifd) to read the ROM layout from an Intel Firmware
+Descriptor (IFD). Works the same as the -l option, if given, -i
+specifies the images to update.
+
+v2: o Rebased on libflashrom, use libflashrom interface.
+    o Use functions from ich_descriptors.c.
+
+Signed-off-by: Nico Huber <nico.huber@secunet.com>
+---
+ cli_classic.c     | 33 +++++++++++++++++++++----
+ flash.h           |  2 +-
+ flashrom.8.tmpl   | 18 +++++++++++++-
+ flashrom.c        |  6 ++---
+ ich_descriptors.c | 54 +++++++++++++++++++++++++++++++++++++++-
+ ich_descriptors.h |  2 ++
+ layout.c          | 18 +++++++-------
+ layout.h          |  9 ++++++-
+ libflashrom.c     | 74 +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ libflashrom.h     |  1 +
+ 10 files changed, 196 insertions(+), 21 deletions(-)
+
+diff --git a/cli_classic.c b/cli_classic.c
+index aef7693..0853a2f 100644
+--- a/cli_classic.c
++++ b/cli_classic.c
+@@ -42,7 +42,7 @@ static void cli_classic_usage(const char *name)
+ 	       "-z|"
+ #endif
+ 	       "-p <programmername>[:<parameters>] [-c <chipname>]\n"
+-	       "[-E|(-r|-w|-v) <file>] [-l <layoutfile> [-i <imagename>]...] [-n] [-A] [-f]]\n"
++	       "[-E|(-r|-w|-v) <file>] [(-l <layoutfile>|-d) [-i <imagename>]...] [-n] [-A] [-f]]\n"
+ 	       "[-V[V[V]]] [-o <logfile>]\n\n", name);
+ 
+ 	printf(" -h | --help                        print this help text\n"
+@@ -57,6 +57,7 @@ static void cli_classic_usage(const char *name)
+ 	       " -n | --noverify                    don't auto-verify\n"
+ 	       " -A | --noverify-all                don't auto-verify whole chip\n"
+ 	       " -l | --layout <layoutfile>         read ROM layout from <layoutfile>\n"
++	       " -d | --ifd                         read layout from an Intel Firmware Descriptor\n"
+ 	       " -i | --image <name>                only flash image <name> from flash layout\n"
+ 	       " -o | --output <logfile>            log output to <logfile>\n"
+ 	       " -L | --list-supported              print supported devices\n"
+@@ -99,16 +100,17 @@ int main(int argc, char *argv[])
+ 	struct flashctx *fill_flash;
+ 	const char *name;
+ 	int namelen, opt, i, j;
+-	int startchip = -1, chipcount = 0, option_index = 0, force = 0;
++	int startchip = -1, chipcount = 0, option_index = 0, force = 0, ifd = 0;
+ #if CONFIG_PRINT_WIKI == 1
+ 	int list_supported_wiki = 0;
+ #endif
+ 	int read_it = 0, write_it = 0, erase_it = 0, verify_it = 0;
+ 	int dont_verify_it = 0, dont_verify_all = 0, list_supported = 0, operation_specified = 0;
++	struct fl_layout *layout = NULL;
+ 	enum programmer prog = PROGRAMMER_INVALID;
+ 	int ret = 0;
+ 
+-	static const char optstring[] = "r:Rw:v:nAVEfc:l:i:p:Lzho:";
++	static const char optstring[] = "r:Rw:v:nAVEfc:l:di:p:Lzho:";
+ 	static const struct option long_options[] = {
+ 		{"read",		1, NULL, 'r'},
+ 		{"write",		1, NULL, 'w'},
+@@ -120,6 +122,7 @@ int main(int argc, char *argv[])
+ 		{"verbose",		0, NULL, 'V'},
+ 		{"force",		0, NULL, 'f'},
+ 		{"layout",		1, NULL, 'l'},
++		{"ifd",			0, NULL, 'd'},
+ 		{"image",		1, NULL, 'i'},
+ 		{"list-supported",	0, NULL, 'L'},
+ 		{"list-supported-wiki",	0, NULL, 'z'},
+@@ -220,8 +223,19 @@ int main(int argc, char *argv[])
+ 					"more than once. Aborting.\n");
+ 				cli_classic_abort_usage();
+ 			}
++			if (ifd) {
++				fprintf(stderr, "Error: --layout and --ifd both specified. Aborting.\n");
++				cli_classic_abort_usage();
++			}
+ 			layoutfile = strdup(optarg);
+ 			break;
++		case 'd':
++			if (layoutfile) {
++				fprintf(stderr, "Error: --layout and --ifd both specified. Aborting.\n");
++				cli_classic_abort_usage();
++			}
++			ifd = 1;
++			break;
+ 		case 'i':
+ 			tempstr = strdup(optarg);
+ 			if (register_include_arg(tempstr)) {
+@@ -376,7 +390,7 @@ int main(int argc, char *argv[])
+ 		ret = 1;
+ 		goto out;
+ 	}
+-	if (process_include_args()) {
++	if (!ifd && process_include_args(get_global_layout())) {
+ 		ret = 1;
+ 		goto out;
+ 	}
+@@ -530,8 +544,14 @@ int main(int argc, char *argv[])
+ 	}
+ 
+ 	if (layoutfile)
+-		fl_layout_set(fill_flash, get_global_layout());
++		layout = get_global_layout();
++	else if (ifd && (fl_layout_read_from_ifd(fill_flash, &layout, NULL, 0) ||
++			 process_include_args(layout))) {
++		ret = 1;
++		goto out_shutdown;
++	}
+ 
++	fl_layout_set(fill_flash, layout);
+ 	fl_flag_set(fill_flash, FL_FLAG_FORCE, !!force);
+ 	fl_flag_set(fill_flash, FL_FLAG_FORCE_BOARDMISMATCH, !!force_boardmismatch);
+ 	fl_flag_set(fill_flash, FL_FLAG_VERIFY_AFTER_WRITE, !dont_verify_it);
+@@ -551,6 +571,9 @@ int main(int argc, char *argv[])
+ 	else if (verify_it)
+ 		ret = do_verify(fill_flash, filename);
+ 
++	if (ifd)
++		fl_layout_release(layout);
++
+ out_shutdown:
+ 	programmer_shutdown();
+ out:
+diff --git a/flash.h b/flash.h
+index fc024ac..05cb59b 100644
+--- a/flash.h
++++ b/flash.h
+@@ -285,6 +285,7 @@ void list_programmers_linebreak(int startcol, int cols, int paren);
+ int selfcheck(void);
+ int read_buf_from_file(unsigned char *buf, unsigned long size, const char *filename);
+ int write_buf_to_file(const unsigned char *buf, unsigned long size, const char *filename);
++int prepare_flash_access(struct flashctx *, bool read_it, bool write_it, bool erase_it, bool verify_it);
+ int do_read(struct flashctx *, const char *filename);
+ int do_erase(struct flashctx *);
+ int do_write(struct flashctx *, const char *const filename);
+@@ -352,7 +353,6 @@ __attribute__((format(printf, 2, 3)));
+ 
+ /* layout.c */
+ int register_include_arg(char *name);
+-int process_include_args(void);
+ int read_romlayout(const char *name);
+ int normalize_romentries(const struct flashctx *flash);
+ int build_new_image(struct flashctx *flash, bool oldcontents_valid, uint8_t *oldcontents, uint8_t *newcontents);
+diff --git a/flashrom.8.tmpl b/flashrom.8.tmpl
+index 34e1fe7..02d79e3 100644
+--- a/flashrom.8.tmpl
++++ b/flashrom.8.tmpl
+@@ -48,7 +48,7 @@ flashrom \- detect, read, write, verify and erase flash chips
+ \fB\-p\fR <programmername>[:<parameters>]
+                [\fB\-E\fR|\fB\-r\fR <file>|\fB\-w\fR <file>|\fB\-v\fR <file>] \
+ [\fB\-c\fR <chipname>]
+-               [\fB\-l\fR <file> [\fB\-i\fR <image>]] [\fB\-n\fR] [\fB\-f\fR]]
++               [(\fB\-l\fR <file>|\fB\-d\fR) [\fB\-i\fR <image>]] [\fB\-n\fR] [\fB\-f\fR]]
+          [\fB\-V\fR[\fBV\fR[\fBV\fR]]] [\fB-o\fR <logfile>]
+ .SH DESCRIPTION
+ .B flashrom
+@@ -179,6 +179,22 @@ To update only the images named
+ .sp
+ Overlapping sections are not supported.
+ .TP
++.B "\-d, \-\-ifd"
++Read ROM layout from Intel Firmware Descriptor.
++.sp
++flashrom supports ROM layouts given by an Intel Firmware Descriptor
++(IFD). Both, the current flash ROM chips contents and the file's
++contents which are to be flashed, must contain an IFD with the same ROM
++regions.
++.sp
++The following ROM images may be present in an IFD:
++.sp
++  Flash_Descriptor     the IFD itself
++  BIOS                 the host firmware aka. BIOS
++  Intel_ME             Intel Management Engine firmware
++  GbE                  Gigabit Ethernet firmware
++  Platform_Data        platform specific data
++.TP
+ .B "\-i, \-\-image <imagename>"
+ Only flash region/image
+ .B <imagename>
+diff --git a/flashrom.c b/flashrom.c
+index 0bc8e6f..0fcbab8 100644
+--- a/flashrom.c
++++ b/flashrom.c
+@@ -2143,9 +2143,9 @@ int chip_safety_check(const struct flashctx *flash, int force, int read_it, int
+ 	return 0;
+ }
+ 
+-static int prepare_flash_access(struct flashctx *const flash,
+-				const bool read_it, const bool write_it,
+-				const bool erase_it, const bool verify_it)
++int prepare_flash_access(struct flashctx *const flash,
++			 const bool read_it, const bool write_it,
++			 const bool erase_it, const bool verify_it)
+ {
+ 	if (chip_safety_check(flash, flash->flags.force, read_it, write_it, erase_it, verify_it)) {
+ 		msg_cerr("Aborting.\n");
+diff --git a/ich_descriptors.c b/ich_descriptors.c
+index c9e82eb..5d6b66f 100644
+--- a/ich_descriptors.c
++++ b/ich_descriptors.c
+@@ -23,6 +23,7 @@
+ 
+ #ifdef ICH_DESCRIPTORS_FROM_DUMP_ONLY
+ #include <stdio.h>
++#include <string.h>
+ #define print(t, ...) printf(__VA_ARGS__)
+ #endif
+ 
+@@ -38,7 +39,7 @@
+ #include "programmer.h"
+ 
+ #ifndef min
+-#define min(a, b) (a < b) ? a : b
++#define min(a, b) ((a < b) ? (a) : (b))
+ #endif
+ 
+ void prettyprint_ich_reg_vscc(uint32_t reg_val, int verbosity, bool print_vcl)
+@@ -916,4 +917,55 @@ int read_ich_descriptors_via_fdo(void *spibar, struct ich_descriptors *desc)
+ 	msg_pdbg2(" done.\n");
+ 	return ICH_RET_OK;
+ }
++
++/**
++ * @addtogroup fl-layout
++ * @{
++ */
++
++/**
++ * @brief Read a layout from the dump of an Intel ICH descriptor.
++ *
++ * @param layout Pointer where to store the layout.
++ * @param dump   The descriptor dump to read from.
++ * @param len    The length of the descriptor dump.
++ *
++ * @return 0 on success,
++ * 	   1 if the descriptor couldn't be parsed.
++ */
++int layout_from_ich_descriptors(struct fl_layout_ich *const layout, const void *const dump, const size_t len)
++{
++	static const char *regions[5] = {
++		"Flash_Descriptor",
++		"BIOS",
++		"Intel_ME",
++		"GbE",
++		"Platform_Data"
++	};
++
++	struct ich_descriptors desc;
++	if (read_ich_descriptors_from_dump(dump, len, &desc))
++		return 1;
++
++	memset(layout, 0x00, sizeof(*layout));
++
++	size_t i, j;
++	for (i = 0, j = 0; i < min(desc.content.NR + 1, ARRAY_SIZE(regions)); ++i) {
++		const chipoff_t base = ICH_FREG_BASE(desc.region.FLREGs[i]);
++		const chipoff_t limit = ICH_FREG_LIMIT(desc.region.FLREGs[i]) + 0xfff;
++		if (limit <= base)
++			continue;
++		layout->entries[j].start = base;
++		layout->entries[j].end = limit;
++		layout->entries[j].included = false;
++		snprintf(layout->entries[j].name, sizeof(layout->entries[j].name), "%s", regions[i]);
++		++j;
++	}
++	layout->base.entries = layout->entries;
++	layout->base.num_entries = j;
++	return 0;
++}
++
++/** @} */
++
+ #endif /* ICH_DESCRIPTORS_FROM_DUMP_ONLY */
+diff --git a/ich_descriptors.h b/ich_descriptors.h
+index e355e54..107fad6 100644
+--- a/ich_descriptors.h
++++ b/ich_descriptors.h
+@@ -584,4 +584,6 @@ int read_ich_descriptors_from_dump(const uint32_t *dump, unsigned int len, struc
+ int read_ich_descriptors_via_fdo(void *spibar, struct ich_descriptors *desc);
+ int getFCBA_component_density(enum ich_chipset cs, const struct ich_descriptors *desc, uint8_t idx);
+ 
++int layout_from_ich_descriptors(struct fl_layout_ich *, const void *dump, size_t len);
++
+ #endif /* __ICH_DESCRIPTORS_H__ */
+diff --git a/layout.c b/layout.c
+index 9eadb22..ab80bb8 100644
+--- a/layout.c
++++ b/layout.c
+@@ -35,7 +35,7 @@ static struct fl_layout layout = { entries, 0 };
+ static char *include_args[MAX_ROMLAYOUT];
+ static int num_include_args = 0; /* the number of valid include_args. */
+ 
+-const struct fl_layout *get_global_layout(void)
++struct fl_layout *get_global_layout(void)
+ {
+ 	return &layout;
+ }
+@@ -132,17 +132,17 @@ int register_include_arg(char *name)
+ }
+ 
+ /* returns the index of the entry (or a negative value if it is not found) */
+-static int find_romentry(char *name)
++static int find_romentry(struct fl_layout *const fl_layout, char *name)
+ {
+ 	int i;
+ 
+-	if (layout.num_entries == 0)
++	if (fl_layout->num_entries == 0)
+ 		return -1;
+ 
+ 	msg_gspew("Looking for region \"%s\"... ", name);
+-	for (i = 0; i < layout.num_entries; i++) {
+-		if (!strcmp(layout.entries[i].name, name)) {
+-			layout.entries[i].included = 1;
++	for (i = 0; i < fl_layout->num_entries; i++) {
++		if (!strcmp(fl_layout->entries[i].name, name)) {
++			fl_layout->entries[i].included = 1;
+ 			msg_gspew("found.\n");
+ 			return i;
+ 		}
+@@ -154,7 +154,7 @@ static int find_romentry(char *name)
+ /* process -i arguments
+  * returns 0 to indicate success, >0 to indicate failure
+  */
+-int process_include_args(void)
++int process_include_args(struct fl_layout *const fl_layout)
+ {
+ 	int i;
+ 	unsigned int found = 0;
+@@ -163,7 +163,7 @@ int process_include_args(void)
+ 		return 0;
+ 
+ 	/* User has specified an area, but no layout file is loaded. */
+-	if (layout.num_entries == 0) {
++	if (fl_layout->num_entries == 0) {
+ 		msg_gerr("Region requested (with -i \"%s\"), "
+ 			 "but no layout data is available.\n",
+ 			 include_args[0]);
+@@ -171,7 +171,7 @@ int process_include_args(void)
+ 	}
+ 
+ 	for (i = 0; i < num_include_args; i++) {
+-		if (find_romentry(include_args[i]) < 0) {
++		if (find_romentry(fl_layout, include_args[i]) < 0) {
+ 			msg_gerr("Invalid region specified: \"%s\".\n",
+ 				 include_args[i]);
+ 			return 1;
+diff --git a/layout.h b/layout.h
+index 3aebe8a..71bcac3 100644
+--- a/layout.h
++++ b/layout.h
+@@ -54,6 +54,13 @@ struct fl_layout_single {
+ 	struct fl_romentry entry;
+ };
+ 
+-const struct fl_layout *get_global_layout(void);
++struct fl_layout_ich {
++	struct fl_layout base;
++	struct fl_romentry entries[5];
++};
++
++struct fl_layout *get_global_layout(void);
++
++int process_include_args(struct fl_layout *);
+ 
+ #endif				/* !__LAYOUT_H__ */
+diff --git a/libflashrom.c b/libflashrom.c
+index eab9548..9adb484 100644
+--- a/libflashrom.c
++++ b/libflashrom.c
+@@ -31,6 +31,7 @@
+ #include "flash.h"
+ #include "programmer.h"
+ #include "layout.h"
++#include "ich_descriptors.h"
+ #include "libflashrom.h"
+ 
+ /**
+@@ -293,6 +294,79 @@ int fl_layout_include_region(fl_layout_t *const layout, const char *name)
+ }
+ 
+ /**
++ * @brief Read a layout from the Intel ICH descriptor in the flash.
++ *
++ * Optionally verify that the layout matches the one in the given
++ * descriptor dump.
++ *
++ * @param flashctx Flash context to read the descriptor from flash.
++ * @param layout   Pointer that getwhere to store the layout.
++ * @param dump     The descriptor dump to compare to or NULL.
++ * @param len      The length of the descriptor dump.
++ *
++ * @return 0 on success,
++ *         5 if the descriptors don't match,
++ *         4 if the descriptor dump couldn't be parsed,
++ *         3 if the descriptor on flash couldn't be parsed,
++ *         2 if the descriptor on flash couldn't be read,
++ *         1 on any other error.
++ */
++int fl_layout_read_from_ifd(struct flashctx *const flashctx, fl_layout_t **const layout,
++			    const void *const dump, const size_t len)
++{
++	struct fl_layout_ich dump_layout;
++	int ret = 1;
++
++	void *const desc = malloc(0x1000);
++	struct fl_layout_ich *const chip_layout = malloc(sizeof(*chip_layout));
++	if (!desc || !chip_layout) {
++		msg_gerr("Out of memory!\n");
++		goto _free_ret;
++	}
++
++	if (prepare_flash_access(flashctx, true, false, false, false))
++		goto _free_ret;
++
++	msg_cinfo("Reading ich descriptor... ");
++	if (flashctx->chip->read(flashctx, desc, 0, 0x1000)) {
++		msg_cerr("Read operation failed!\n");
++		msg_cinfo("FAILED.\n");
++		ret = 2;
++		goto _unmap_ret;
++	}
++	msg_cinfo("done.\n");
++
++	if (layout_from_ich_descriptors(chip_layout, desc, 0x1000)) {
++		ret = 3;
++		goto _unmap_ret;
++	}
++
++	if (dump) {
++		if (layout_from_ich_descriptors(&dump_layout, dump, len)) {
++			ret = 4;
++			goto _unmap_ret;
++		}
++
++		if (chip_layout->base.num_entries != dump_layout.base.num_entries ||
++		    memcmp(chip_layout->entries, dump_layout.entries, sizeof(dump_layout.entries))) {
++			ret = 5;
++			goto _unmap_ret;
++		}
++	}
++
++	*layout = (struct fl_layout *)chip_layout;
++	ret = 0;
++
++_unmap_ret:
++	unmap_flash(flashctx);
++_free_ret:
++	if (ret)
++		free(chip_layout);
++	free(desc);
++	return ret;
++}
++
++/**
+  * @brief Free a layout.
+  *
+  * @param layout Layout to free.
+diff --git a/libflashrom.h b/libflashrom.h
+index af56bc8..aceb388 100644
+--- a/libflashrom.h
++++ b/libflashrom.h
+@@ -63,6 +63,7 @@ int fl_image_verify(fl_flashctx_t *, const void *buffer, size_t buffer_len);
+ 
+ struct fl_layout;
+ typedef struct fl_layout fl_layout_t;
++int fl_layout_read_from_ifd(fl_flashctx_t *, fl_layout_t **, const void *dump, size_t len);
+ int fl_layout_include_region(fl_layout_t *, const char *name);
+ void fl_layout_release(fl_layout_t *);
+ void fl_layout_set(fl_flashctx_t *, const fl_layout_t *);
+-- 
+2.7.4
+

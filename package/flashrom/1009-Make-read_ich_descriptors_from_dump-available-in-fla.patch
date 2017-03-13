@@ -1,0 +1,172 @@
+From 8277ad6bd62040819f28d1461c79975c6b839ccd Mon Sep 17 00:00:00 2001
+From: Nico Huber <nico.huber@secunet.com>
+Date: Wed, 4 May 2016 10:51:42 +0000
+Subject: [PATCH 1009/1016] Make read_ich_descriptors_from_dump() available in
+ flashrom
+
+I didn't really know what I was doing and hope removing the #ifdefs
+doesn't have negative side effects.
+
+The idea is to make the functions generally available for external
+flashing (e.g. you might want to flash an Intel machine using an ARM
+device as programmer).
+
+Beware of big endian trouble, I guess. :-P
+
+Signed-off-by: Nico Huber <nico.huber@secunet.com>
+---
+ ich_descriptors.c                  | 23 ++++++++---------------
+ ich_descriptors.h                  | 11 -----------
+ util/ich_descriptors_tool/Makefile |  2 +-
+ 3 files changed, 9 insertions(+), 27 deletions(-)
+
+diff --git a/ich_descriptors.c b/ich_descriptors.c
+index 90f70ee..c9e82eb 100644
+--- a/ich_descriptors.c
++++ b/ich_descriptors.c
+@@ -19,14 +19,13 @@
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+  */
+ 
+-#if defined(__i386__) || defined(__x86_64__)
+-
+ #include "ich_descriptors.h"
+ 
+-#ifdef ICH_DESCRIPTORS_FROM_DUMP
+-
++#ifdef ICH_DESCRIPTORS_FROM_DUMP_ONLY
+ #include <stdio.h>
+ #define print(t, ...) printf(__VA_ARGS__)
++#endif
++
+ #define DESCRIPTOR_MODE_SIGNATURE 0x0ff0a55a
+ /* The upper map is located in the word before the 256B-long OEM section at the
+  * end of the 4kB-long flash descriptor.
+@@ -34,13 +33,10 @@
+ #define UPPER_MAP_OFFSET (4096 - 256 - 4)
+ #define getVTBA(flumap)	(((flumap)->FLUMAP1 << 4) & 0x00000ff0)
+ 
+-#else /* ICH_DESCRIPTORS_FROM_DUMP */
+-
++#include <string.h>
+ #include "flash.h" /* for msg_* */
+ #include "programmer.h"
+ 
+-#endif /* ICH_DESCRIPTORS_FROM_DUMP */
+-
+ #ifndef min
+ #define min(a, b) (a < b) ? a : b
+ #endif
+@@ -69,12 +65,12 @@ void prettyprint_ich_descriptors(enum ich_chipset cs, const struct ich_descripto
+ 	prettyprint_ich_descriptor_component(cs, desc);
+ 	prettyprint_ich_descriptor_region(desc);
+ 	prettyprint_ich_descriptor_master(&desc->master);
+-#ifdef ICH_DESCRIPTORS_FROM_DUMP
++#ifdef ICH_DESCRIPTORS_FROM_DUMP_ONLY
+ 	if (cs >= CHIPSET_ICH8) {
+ 		prettyprint_ich_descriptor_upper_map(&desc->upper);
+ 		prettyprint_ich_descriptor_straps(cs, desc);
+ 	}
+-#endif /* ICH_DESCRIPTORS_FROM_DUMP */
++#endif /* ICH_DESCRIPTORS_FROM_DUMP_ONLY */
+ }
+ 
+ void prettyprint_ich_descriptor_content(const struct ich_desc_content *cont)
+@@ -301,8 +297,6 @@ void prettyprint_ich_descriptor_master(const struct ich_desc_master *mstr)
+ 	msg_pdbg2("\n");
+ }
+ 
+-#ifdef ICH_DESCRIPTORS_FROM_DUMP
+-
+ void prettyprint_ich_descriptor_straps_ich8(const struct ich_descriptors *desc)
+ {
+ 	static const char * const str_GPIO12[4] = {
+@@ -792,7 +786,7 @@ int read_ich_descriptors_from_dump(const uint32_t *dump, unsigned int len, struc
+ 	return ICH_RET_OK;
+ }
+ 
+-#else /* ICH_DESCRIPTORS_FROM_DUMP */
++#ifndef ICH_DESCRIPTORS_FROM_DUMP_ONLY
+ 
+ /** Returns the integer representation of the component density with index
+ \em idx in bytes or -1 if the correct size can not be determined. */
+@@ -922,5 +916,4 @@ int read_ich_descriptors_via_fdo(void *spibar, struct ich_descriptors *desc)
+ 	msg_pdbg2(" done.\n");
+ 	return ICH_RET_OK;
+ }
+-#endif /* ICH_DESCRIPTORS_FROM_DUMP */
+-#endif /* defined(__i386__) || defined(__x86_64__) */
++#endif /* ICH_DESCRIPTORS_FROM_DUMP_ONLY */
+diff --git a/ich_descriptors.h b/ich_descriptors.h
+index 2c21598..e355e54 100644
+--- a/ich_descriptors.h
++++ b/ich_descriptors.h
+@@ -19,7 +19,6 @@
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+  */
+ 
+-#if defined(__i386__) || defined(__x86_64__)
+ #ifndef __ICH_DESCRIPTORS_H__
+ #define __ICH_DESCRIPTORS_H__ 1
+ 
+@@ -250,7 +249,6 @@ struct ich_desc_master {
+ 	};
+ };
+ 
+-#ifdef ICH_DESCRIPTORS_FROM_DUMP
+ struct ich_desc_north_strap {
+ 	union {
+ 		uint32_t STRPs[1]; /* current maximum: ich8 */
+@@ -561,18 +559,15 @@ struct ich_desc_upper_map {
+ 		};
+ 	} vscc_table[128];
+ };
+-#endif /* ICH_DESCRIPTORS_FROM_DUMP */
+ 
+ struct ich_descriptors {
+ 	struct ich_desc_content content;
+ 	struct ich_desc_component component;
+ 	struct ich_desc_region region;
+ 	struct ich_desc_master master;
+-#ifdef ICH_DESCRIPTORS_FROM_DUMP
+ 	struct ich_desc_north_strap north;
+ 	struct ich_desc_south_strap south;
+ 	struct ich_desc_upper_map upper;
+-#endif /* ICH_DESCRIPTORS_FROM_DUMP */
+ };
+ 
+ void prettyprint_ich_descriptors(enum ich_chipset cs, const struct ich_descriptors *desc);
+@@ -582,17 +577,11 @@ void prettyprint_ich_descriptor_component(enum ich_chipset cs, const struct ich_
+ void prettyprint_ich_descriptor_region(const struct ich_descriptors *desc);
+ void prettyprint_ich_descriptor_master(const struct ich_desc_master *master);
+ 
+-#ifdef ICH_DESCRIPTORS_FROM_DUMP
+-
+ void prettyprint_ich_descriptor_upper_map(const struct ich_desc_upper_map *umap);
+ void prettyprint_ich_descriptor_straps(enum ich_chipset cs, const struct ich_descriptors *desc);
+ int read_ich_descriptors_from_dump(const uint32_t *dump, unsigned int len, struct ich_descriptors *desc);
+ 
+-#else /* ICH_DESCRIPTORS_FROM_DUMP */
+-
+ int read_ich_descriptors_via_fdo(void *spibar, struct ich_descriptors *desc);
+ int getFCBA_component_density(enum ich_chipset cs, const struct ich_descriptors *desc, uint8_t idx);
+ 
+-#endif /* ICH_DESCRIPTORS_FROM_DUMP */
+ #endif /* __ICH_DESCRIPTORS_H__ */
+-#endif /* defined(__i386__) || defined(__x86_64__) */
+diff --git a/util/ich_descriptors_tool/Makefile b/util/ich_descriptors_tool/Makefile
+index 9cbc150..e312996 100644
+--- a/util/ich_descriptors_tool/Makefile
++++ b/util/ich_descriptors_tool/Makefile
+@@ -32,7 +32,7 @@ endif
+ 
+ FLASHROM_CFLAGS += -MMD -MP -MF $(DEPPATH)/$(@F).d
+ # enables functions that populate the descriptor structs from plain binary dumps
+-FLASHROM_CFLAGS += -D ICH_DESCRIPTORS_FROM_DUMP
++FLASHROM_CFLAGS += -D ICH_DESCRIPTORS_FROM_DUMP_ONLY
+ FLASHROM_CFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
+ 
+ OBJ = $(OBJATH)/$(SRC:%.c=%.o)
+-- 
+2.7.4
+

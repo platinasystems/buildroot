@@ -1,0 +1,69 @@
+From 1d61999dd8158fc931d8ccd8df39128bb6deb73b Mon Sep 17 00:00:00 2001
+From: Nico Huber <nico.huber@secunet.com>
+Date: Wed, 4 May 2016 10:51:33 +0000
+Subject: [PATCH 1000/1016] Make image parameter of cb_check_image() const
+
+Signed-off-by: Nico Huber <nico.huber@secunet.com>
+---
+ cbtable.c    | 14 +++++++-------
+ programmer.h |  2 +-
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/cbtable.c b/cbtable.c
+index 1a74e46..c1c264a 100644
+--- a/cbtable.c
++++ b/cbtable.c
+@@ -38,13 +38,13 @@ static char *cb_vendor = NULL, *cb_model = NULL;
+  * 	-1	if IDs in the image do not match the IDs embedded in the current firmware,
+  * 	 0	if the IDs could not be found in the image or if they match correctly.
+  */
+-int cb_check_image(uint8_t *image, int size)
++int cb_check_image(const uint8_t *image, int size)
+ {
+-	unsigned int *walk;
++	const unsigned int *walk;
+ 	unsigned int mb_part_offset, mb_vendor_offset;
+-	char *mb_part, *mb_vendor;
++	const char *mb_part, *mb_vendor;
+ 
+-	walk = (unsigned int *)(image + size - 0x10);
++	walk = (const unsigned int *)(image + size - 0x10);
+ 	walk--;
+ 
+ 	if ((*walk) == 0 || ((*walk) & 0x3ff) != 0) {
+@@ -52,7 +52,7 @@ int cb_check_image(uint8_t *image, int size)
+ 		 * flash at exactly the location where coreboot image size, coreboot vendor name pointer and
+ 		 * coreboot board name pointer are usually stored. In this case coreboot uses an alternate
+ 		 * location for the coreboot image data. */
+-		walk = (unsigned int *)(image + size - 0x80);
++		walk = (const unsigned int *)(image + size - 0x80);
+ 		walk--;
+ 	}
+ 
+@@ -70,8 +70,8 @@ int cb_check_image(uint8_t *image, int size)
+ 		return 0;
+ 	}
+ 
+-	mb_part = (char *)(image + size - mb_part_offset);
+-	mb_vendor = (char *)(image + size - mb_vendor_offset);
++	mb_part = (const char *)(image + size - mb_part_offset);
++	mb_vendor = (const char *)(image + size - mb_vendor_offset);
+ 	if (!isprint((unsigned char)*mb_part) ||
+ 	    !isprint((unsigned char)*mb_vendor)) {
+ 		msg_pdbg("Flash image seems to have garbage in the ID location. "
+diff --git a/programmer.h b/programmer.h
+index bd8e98d..3853413 100644
+--- a/programmer.h
++++ b/programmer.h
+@@ -308,7 +308,7 @@ void cleanup_cpu_msr(void);
+ 
+ /* cbtable.c */
+ int cb_parse_table(const char **vendor, const char **model);
+-int cb_check_image(uint8_t *bios, int size);
++int cb_check_image(const uint8_t *bios, int size);
+ 
+ /* dmi.c */
+ #if defined(__i386__) || defined(__x86_64__)
+-- 
+2.7.4
+

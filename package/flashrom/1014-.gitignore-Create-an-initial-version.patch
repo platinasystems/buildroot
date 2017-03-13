@@ -1,0 +1,30 @@
+From f33d9b4e45ba15b2cbb4797446eca09d7469a735 Mon Sep 17 00:00:00 2001
+From: Kevin Paul Herbert <kph@platinasystems.com>
+Date: Tue, 31 Jan 2017 17:20:54 -0800
+Subject: [PATCH 1014/1016] .gitignore: Create an initial version
+
+Clean up - add .gitignore.
+
+Signed-off-by: Kevin Paul Herbert <kph@platinasystems.com>
+---
+ .gitignore | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+ create mode 100644 .gitignore
+
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..b10472f
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,8 @@
++*.o
++*.d
++flashrom
++flashrom.8
++.features
++.libdeps
++build_details.txt
++util/ich_descriptors_tool/ich_descriptors_tool
+-- 
+2.7.4
+

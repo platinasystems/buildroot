@@ -1,0 +1,30 @@
+From 7b28b44dbfa3d606cc4928a352c05ec80fa38911 Mon Sep 17 00:00:00 2001
+From: Nico Huber <nico.huber@secunet.com>
+Date: Wed, 4 May 2016 10:51:41 +0000
+Subject: [PATCH 1008/1016] cli_classic: Remove layout-for-write-only check
+
+Signed-off-by: Nico Huber <nico.huber@secunet.com>
+---
+ cli_classic.c | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/cli_classic.c b/cli_classic.c
+index d23a3a3..aef7693 100644
+--- a/cli_classic.c
++++ b/cli_classic.c
+@@ -376,12 +376,6 @@ int main(int argc, char *argv[])
+ 		ret = 1;
+ 		goto out;
+ 	}
+-	if (layoutfile != NULL && !write_it) {
+-		msg_gerr("Layout files are currently supported for write operations only.\n");
+-		ret = 1;
+-		goto out;
+-	}
+-
+ 	if (process_include_args()) {
+ 		ret = 1;
+ 		goto out;
+-- 
+2.7.4
+

@@ -1,0 +1,38 @@
+From cbaeaff0f8ad29858515388f887e3869ff5e3b95 Mon Sep 17 00:00:00 2001
+From: Kevin Paul Herbert <kph@meraki.net>
+Date: Wed, 1 Feb 2017 18:18:56 -0800
+Subject: [PATCH 1016/1016] Add a README for Platina use
+
+Document how to use flashrom on the Platina MK1.
+
+Signed-off-by: Kevin Paul Herbert <kph@meraki.net>
+---
+ README-Platina | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+ create mode 100644 README-Platina
+
+diff --git a/README-Platina b/README-Platina
+new file mode 100644
+index 0000000..8976be0
+--- /dev/null
++++ b/README-Platina
+@@ -0,0 +1,16 @@
++This version of flashrom is patched to support Broadwell-DE FLASH programming.
++
++See the following discussion:
++
++    https://www.flashrom.org/pipermail/flashrom/2016-August/014756.html
++
++These changes are not in upstream yet. Additionally, there is a layout file for
++the Platina-MK1 which places the BIOS in the last 8MiB of a 16MiB flash.
++
++To read the current flash into a file:
++
++sudo /usr/local/sbin/flashrom -p internal -l /usr/local/share/flashrom/layouts/platina-mk1.xml -i bios -r platina.rom
++
++To write the coreboot.rom file on a device:
++
++sudo /usr/local/sbin/flashrom -p internal -l /usr/local/share/flashrom/layouts/platina-mk1.xml -i bios -w coreboot-platina-mk1.rom -A -V
+-- 
+2.7.4
+

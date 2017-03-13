@@ -1,0 +1,103 @@
+From 2f281eab4bc0c3d0a0099d5f0a51a837dcb75a9e Mon Sep 17 00:00:00 2001
+From: Nico Huber <nico.huber@secunet.com>
+Date: Wed, 4 May 2016 10:51:38 +0000
+Subject: [PATCH 1005/1016] Adapt CLI to use new libflashrom interface' print
+ callback
+
+This renames CLI's print() to fl_print_cb() and registers it through the
+new libflashrom interface.
+
+Signed-off-by: Nico Huber <nico.huber@secunet.com>
+---
+ cli_classic.c |  3 +++
+ cli_output.c  | 13 ++++++-------
+ flash.h       |  2 ++
+ 3 files changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/cli_classic.c b/cli_classic.c
+index a2c2014..ac4c6f8 100644
+--- a/cli_classic.c
++++ b/cli_classic.c
+@@ -30,6 +30,7 @@
+ #include "flash.h"
+ #include "flashchips.h"
+ #include "programmer.h"
++#include "libflashrom.h"
+ 
+ static void cli_classic_usage(const char *name)
+ {
+@@ -135,6 +136,8 @@ int main(int argc, char *argv[])
+ 	char *tempstr = NULL;
+ 	char *pparam = NULL;
+ 
++	fl_set_log_callback((fl_log_callback_t *)&fl_print_cb);
++
+ 	print_version();
+ 	print_banner();
+ 
+diff --git a/cli_output.c b/cli_output.c
+index feafbd2..2805dec 100644
+--- a/cli_output.c
++++ b/cli_output.c
+@@ -71,19 +71,19 @@ void start_logging(void)
+ #endif /* !STANDALONE */
+ 
+ /* Please note that level is the verbosity, not the importance of the message. */
+-int print(enum msglevel level, const char *fmt, ...)
++int fl_print_cb(enum msglevel level, const char *fmt, va_list ap)
+ {
+-	va_list ap;
+ 	int ret = 0;
+ 	FILE *output_type = stdout;
+ 
++	va_list logfile_args;
++	va_copy(logfile_args, ap);
++
+ 	if (level < MSG_INFO)
+ 		output_type = stderr;
+ 
+ 	if (level <= verbose_screen) {
+-		va_start(ap, fmt);
+ 		ret = vfprintf(output_type, fmt, ap);
+-		va_end(ap);
+ 		/* msg_*spew often happens inside chip accessors in possibly
+ 		 * time-critical operations. Don't slow them down by flushing. */
+ 		if (level != MSG_SPEW)
+@@ -91,12 +91,11 @@ int print(enum msglevel level, const char *fmt, ...)
+ 	}
+ #ifndef STANDALONE
+ 	if ((level <= verbose_logfile) && logfile) {
+-		va_start(ap, fmt);
+-		ret = vfprintf(logfile, fmt, ap);
+-		va_end(ap);
++		ret = vfprintf(logfile, fmt, logfile_args);
+ 		if (level != MSG_SPEW)
+ 			fflush(logfile);
+ 	}
+ #endif /* !STANDALONE */
++	va_end(logfile_args);
+ 	return ret;
+ }
+diff --git a/flash.h b/flash.h
+index 5544160..3afa846 100644
+--- a/flash.h
++++ b/flash.h
+@@ -30,6 +30,7 @@
+ #include <stdio.h>
+ #include <stdint.h>
+ #include <stddef.h>
++#include <stdarg.h>
+ #include <stdbool.h>
+ #if IS_WINDOWS
+ #include <windows.h>
+@@ -319,6 +320,7 @@ enum msglevel {
+ 	MSG_DEBUG2	= 4,
+ 	MSG_SPEW	= 5,
+ };
++int fl_print_cb(enum msglevel level, const char *fmt, va_list ap);
+ /* Let gcc and clang check for correct printf-style format strings. */
+ int print(enum msglevel level, const char *fmt, ...)
+ #ifdef __MINGW32__
+-- 
+2.7.4
+
