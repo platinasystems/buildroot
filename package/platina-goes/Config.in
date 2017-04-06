@@ -1,0 +1,60 @@
+config BR2_PACKAGE_PLATINA_GOES
+	bool "platina-goes"
+	depends on BR2_PACKAGE_HOST_GO_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_CGO_LINKING_SUPPORTS
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  platina-goes is a framework for embedded systems in Go
+
+	  https://github.com/platinasystems/go
+
+comment "platina-goes needs a toolchain w/ threads"
+	depends on BR2_PACKAGE_HOST_GO_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_CGO_LINKING_SUPPORTS
+	depends on !BR2_TOOLCHAIN_HAS_THREADS
+
+if BR2_PACKAGE_PLATINA_GOES
+
+choice
+	bool "goes variant to build"
+	default BR2_PACKAGE_PLATINA_GOES_EXAMPLE if BR2_x86_64
+	default BR2_PACKAGE_PLATINA_GOES_EXAMPLE_ARM if BR2_arm
+	help
+	 Pick the variant of goes you want to build for your hardware
+	 configuration.
+
+config BR2_PACKAGE_PLATINA_GOES_EXAMPLE
+	bool "goes-example"
+	depends on BR2_x86_64
+	help
+	 Example for x86_64 with qemu.
+
+config BR2_PACKAGE_PLATINA_GOES_EXAMPLE_ARM
+       bool "goes-example-arm"
+       depends on BR2_arm
+       help
+	Example for ARM with qemu.
+
+config BR2_PACKAGE_PLATINA_GOES_MK1_BMC
+       bool "goes-platina-mk1-bmc"
+       depends on BR2_arm
+       help
+	Example for ARM-based BMC on Platina-MK1
+
+config BR2_PACKAGE_PLATINA_GOES_MK1
+       bool "goes-platina-mk1"
+       depends on BR2_x86_64
+       select BR2_PACKAGE_PLATINA_FE1
+       help
+	Example for Platina-MK1
+
+endchoice
+
+config BR2_PACKAGE_PLATINA_GOES_TAGS
+       string "Go build tags"
+       default "netgo" if BR2_arm
+       default "uio_pci_dma foxy" if BR2_PACKAGE_PLATINA_GOES_MK1
+       help
+	Set the desired go build tags. Read the source code to
+	see what these are.
+endif
