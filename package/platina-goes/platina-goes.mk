@@ -55,6 +55,17 @@ define PLATINA_GOES_COPY_FE1
 endef
 endif
 
+ifeq ($(BR2_INIT_PLATINA_GOES),y)
+
+define PLATINA_GOES_INSTALL_INIT_HOOK
+	ln -fs usr/bin/goes $(TARGET_DIR)/init
+endef
+
+endif
+
+PLATINA_GOES_POST_INSTALL_TARGET_HOOKS += \
+	PLATINA_GOES_INSTALL_INIT_HOOK
+
 define PLATINA_GOES_CONFIGURE_CMDS
 	mkdir -p $(PLATINA_GOES_GOPATH)/src/github.com/platinasystems/
 	ln -s $(@D) $(PLATINA_GOES_GOPATH)/src/github.com/platinasystems/go
