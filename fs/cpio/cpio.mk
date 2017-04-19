@@ -39,4 +39,8 @@ ifeq ($(BR2_TARGET_ROOTFS_CPIO_UIMAGE),y)
 ROOTFS_CPIO_POST_TARGETS += $(BINARIES_DIR)/rootfs.cpio.uboot
 endif
 
+ifeq ($(BR2_TARGET_COREBOOT_ROOTFS_PAYLOAD),y)
+ROOTFS_CPIO_POST_TARGETS += $(BINARIES_DIR)/coreboot.rom
+endif
+
 $(eval $(call ROOTFS_TARGET,cpio))

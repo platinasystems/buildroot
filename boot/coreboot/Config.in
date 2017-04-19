@@ -101,4 +101,23 @@ config BR2_TARGET_COREBOOT_CUSTOM_CONFIG_FILE
 	help
 	  Path to the coreboot configuration file.
 
+config BR2_TARGET_COREBOOT_LINUX_PAYLOAD
+       bool "Include kernel as a payload"
+       depends on BR2_LINUX_KERNEL
+       help
+	Include generated Linux into coreboot.rom
+
+config BR2_TARGET_COREBOOT_LINUX_COMMAND
+       string "Kernel command line"
+       depends on BR2_TARGET_COREBOOT_LINUX_PAYLOAD
+       help
+	Include Command line to pass to linux kernel.
+
+config BR2_TARGET_COREBOOT_ROOTFS_PAYLOAD
+       bool "Include root filesystem in payload"
+       depends on BR2_TARGET_COREBOOT_LINUX_PAYLOAD
+       select BR2_TARGET_ROOTFS_CPIO
+       help
+	Add generated root filesystem to the payload
+	
 endif # BR2_TARGET_COREBOOT

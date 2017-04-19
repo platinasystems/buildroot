@@ -9,14 +9,21 @@ COREBOOT_VERSION = $(call qstrip,$(BR2_TARGET_COREBOOT_VERSION))
 COREBOOT_LICENSE = GPLv2+
 COREBOOT_LICENSE_FILES = Licenses/gpl-2.0.txt
 
+ifeq ($(BR2_TARGET_COREBOOT_ROOTFS_PAYLOAD),y)
+COREBOOT_INSTALL_IMAGES = NO
+else
 COREBOOT_INSTALL_IMAGES = YES
+endif
+COREBOOT_INSTALL_STAGING = YES
 
 define COREBOOT_BUILD_TOOLCHAIN
-	$(MAKE) -C $(@D) $(COREBOOT_MAKE_OPTS)		\
-		crossgcc-i386
 endef
 
 COREBOOT_POST_CONFIGURE_HOOKS += COREBOOT_BUILD_TOOLCHAIN
+
+ifeq ($(BR2_TARGET_COREBOOT_LINUX_PAYLOAD),y)
+COREBOOT_DEPENDENCIES += linux
+endif
 
 ifeq ($(COREBOOT_VERSION),custom)
 # Handle custom coreboot tarballs as specified by the configuration
@@ -77,9 +84,55 @@ define COREBOOT_HELP_CMDS
 endef
 
 define COREBOOT_BUILD_CMDS
-		$(MAKE) -C $(@D) 	\
-		$(COREBOOT_MAKE_TARGET)
+	$(Q)if [ ! -e $(@D)/util/crossgcc/xgcc/bin ]; then \
+		$(MAKE) -C $(@D) $(COREBOOT_MAKE_OPTS)	crossgcc-i386 ; \
+	fi
+	$(Q)if [ ! -e $(@D)/build/coreboot.rom ]; then \
+		$(MAKE) -C $(@D) $(COREBOOT_MAKE_TARGET) ; \
+	fi
 endef
+
+CBFSTOOL:=$(HOST_DIR)/usr/bin/cbfstool
+CBFSROM:=$(BINARIES_DIR)/coreboot.rom
+
+define COREBOOT_INSTALL_STAGING_CMDS
+	$(INSTALL) -D -m 0755 $(@D)/build/cbfstool $(HOST_DIR)/usr/bin
+	$(INSTALL) -D -m 0644 $(@D)/build/coreboot.rom $(STAGING_DIR)/boot/coreboot.rom
+	$(INSTALL) -D -m 0544 $(@D)/build/coreboot.pre $(STAGING_DIR)/boot/coreboot.pre
+endef
+
+ifeq ($(BR2_TARGET_COREBOOT_LINUX_PAYLOAD),y)
+
+CBFSADDPAYLOAD+=-f $(BINARIES_DIR)/$(LINUX_IMAGE_NAME)
+CBFSADDPAYLOAD+=-C $(BR2_TARGET_COREBOOT_LINUX_COMMAND)
+CBFSADDPAYLOAD+=-n fallback/payload -t payload -c none -r COREBOOT
+
+CBFSROMDEPENDS+=$(BINARIES_DIR)/$(LINUX_IMAGE_NAME)
+
+ifeq ($(BR2_TARGET_COREBOOT_ROOTFS_PAYLOAD),y)
+CBFSADDPAYLOAD+=-I $(BINARIES_DIR)/rootfs.cpio$(ROOTFS_CPIO_COMPRESS_EXT)
+
+CBFSROMDEPENDS+=$(BINARIES_DIR)/rootfs.cpio$(ROOTFS_CPIO_COMPRESS_EXT)
+endif
+
+define COREBOOT_INSTALL_IMAGES_CMDS
+	$(Q)cp $(STAGING_DIR)/boot/coreboot.rom $(CBFSROM).tmp
+	$(Q)$(CBFSTOOL) $(CBFSROM).tmp add-payload $(CBFSADDPAYLOAD)
+	$(Q)mv $(CBFSROM).tmp $(CBFSROM)
+	$(Q)$(CBFSTOOL) $(CBFSROM) print
+endef
+
+else
+
+define COREBOOT_INSTALL_IMAGES_CMDS
+	$(Q)cp $(STAGING_DIR)/boot/coreboot.rom $(CBFSROM)
+endef
+
+endif
+
+
+$(CBFSROM): $(CBFSROMDEPENDS)
+	$(COREBOOT_INSTALL_IMAGES_CMDS)
 
 ifeq ($(BR2_TARGET_COREBOOT)$(BR_BUILDING),yy)
 
