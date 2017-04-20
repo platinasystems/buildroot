@@ -376,6 +376,18 @@ define LINUX_INSTALL_KERNEL_IMAGE_TO_TARGET
 endef
 endif
 
+ifeq ($(BR2_LINUX_KERNEL_INSTALL_TARGET_MODULES),y)
+define LINUX_INSTALL_KERNEL_MODULES_TO_TARGET
+	# Install modules and remove symbolic links pointing to build
+	# directories, not relevant on the target
+	if grep -q "CONFIG_MODULES=y" $(@D)/.config; then 	\
+		$(LINUX_MAKE_ENV) $(MAKE1) $(LINUX_MAKE_FLAGS) -C $(@D) modules_install; \
+		rm -f $(TARGET_DIR)/lib/modules/$(LINUX_VERSION_PROBED)/build ;		\
+		rm -f $(TARGET_DIR)/lib/modules/$(LINUX_VERSION_PROBED)/source ;	\
+	fi
+endef
+endif
+
 define LINUX_INSTALL_HOST_TOOLS
 	# Installing dtc (device tree compiler) as host tool, if selected
 	if grep -q "CONFIG_DTC=y" $(@D)/.config; then 	\
@@ -398,13 +410,7 @@ endif
 
 define LINUX_INSTALL_TARGET_CMDS
 	$(LINUX_INSTALL_KERNEL_IMAGE_TO_TARGET)
-	# Install modules and remove symbolic links pointing to build
-	# directories, not relevant on the target
-	@if grep -q "CONFIG_MODULES=y" $(@D)/.config; then 	\
-		$(LINUX_MAKE_ENV) $(MAKE1) $(LINUX_MAKE_FLAGS) -C $(@D) modules_install; \
-		rm -f $(TARGET_DIR)/lib/modules/$(LINUX_VERSION_PROBED)/build ;		\
-		rm -f $(TARGET_DIR)/lib/modules/$(LINUX_VERSION_PROBED)/source ;	\
-	fi
+	$(LINUX_INSTALL_KERNEL_MODULES_TO_TARGET)
 	$(LINUX_INSTALL_HOST_TOOLS)
 endef
 
