@@ -13,6 +13,11 @@ config BR2_ROOTFS_SKELETON_CUSTOM
 	help
 	  Use custom target skeleton.
 
+config BR2_ROOTFS_SKELETON_NONE
+       bool "don't use a skeleton"
+       help
+	 Include only files from the sepected packages
+
 endchoice
 
 if BR2_ROOTFS_SKELETON_CUSTOM
@@ -49,6 +54,8 @@ config BR2_TARGET_GENERIC_ISSUE
 	  one from a custom skeleton.
 
 endif
+
+if !BR2_ROOTFS_SKELETON_NONE
 
 choice
 	bool "Passwords encoding"
@@ -94,6 +101,8 @@ config BR2_TARGET_GENERIC_PASSWD_METHOD
 	default "md5"       if BR2_TARGET_GENERIC_PASSWD_MD5
 	default "sha-256"   if BR2_TARGET_GENERIC_PASSWD_SHA256
 	default "sha-512"   if BR2_TARGET_GENERIC_PASSWD_SHA512
+
+endif
 
 choice
 	prompt "Init system"
