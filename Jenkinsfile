@@ -11,6 +11,9 @@ node {
     stage('Checkout') {
         echo "Running build #${env.BUILD_ID} on ${env.JENKINS_URL}"
         git url: 'https://github.com/platinasystems/buildroot.git'
+	checkout([$class: 'GitSCM', branches: [[name: '*/buildroot']],
+			  doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [],
+			  userRemoteConfigs: [[url: 'https://github.com/platinasystems/buildroot.git']]])
     }
 
     stage('Build') {
