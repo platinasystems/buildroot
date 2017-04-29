@@ -10,7 +10,6 @@ import groovy.transform.Field
 node {
     stage('Checkout') {
         echo "Running build #${env.BUILD_ID} on ${env.JENKINS_URL}"
-        git url: 'https://github.com/platinasystems/buildroot.git'
 	checkout([$class: 'GitSCM', branches: [[name: '*/buildroot']],
 			  doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [],
 			  userRemoteConfigs: [[url: 'https://github.com/platinasystems/buildroot.git']]])
@@ -18,11 +17,19 @@ node {
 
     stage('Build') {
         try {
-	    echo "Building example-amd64..."
 	    sh 'env'
 	    sh 'pwd'
-	    sh 'make example-amd64_defconfig'
-            sh 'make all'
+
+	    echo "Cleaning up from previous builds"
+	    sh "make clean"
+
+	    echo "Building example-amd64..."
+	    sh 'make O=builds/example-amd64_defconfig example-amd64_defconfig'
+            sh 'make O=builds/example-amd64_defconfig all'
+
+	    echo "Building platina-mk1-bmc..."
+	    sh 'make O=builds/platina-mk1-bmc platina-mk1-bmc_defconfig'
+            sh 'make O=builds/platina-mk1-bmc all'
 
             mail body: "GOES build ok: ${env.BUILD_URL}",
                 from: email_from,
