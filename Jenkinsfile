@@ -22,7 +22,7 @@ pipeline {
 	stage('Prepare') {
 	    steps {
 		echo 'Cleaning up from previous builds'
-		sh 'make clean'
+		sh 'make distclean'
 	    }
 	}
 
