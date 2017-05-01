@@ -74,7 +74,7 @@ endef
 
 define PLATINA_GOES_BUILD_CMDS
 	$(foreach d,$(PLATINA_GOES_TARGETS),\
-		cd $(@D); $(PLATINA_GOES_MAKE_ENV) $(HOST_DIR)/usr/bin/go build \
+		cd $(@D); env $(PLATINA_GOES_MAKE_ENV) $(HOST_DIR)/usr/bin/go build \
 			-v -o $(@D)/bin/goes -tags "$(PLATINA_GOES_TAGS)" -ldflags "$(PLATINA_GOES_GLDFLAGS)" ./main/$(d)$(sep))
 endef
 
