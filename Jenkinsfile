@@ -23,6 +23,7 @@ pipeline {
 	    steps {
 		echo 'Cleaning up from previous builds'
 		sh 'make distclean'
+		sh 'rm -rf builds'
 	    }
 	}
 
