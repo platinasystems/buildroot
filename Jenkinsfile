@@ -43,6 +43,7 @@ pipeline {
 			sh 'make O=builds/platina-mk1-bmc all'
 		    }
 		)
+	    }
 	}
     }
 
