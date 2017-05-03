@@ -34,6 +34,13 @@ pipeline {
 	    }
 	}
 
+	stage('Build-platina-mk1') {
+	    steps {
+		sh 'make O=builds/platina-mk1 platina-mk1_defconfig'
+		sh 'make O=builds/platina-mk1 all'
+	    }
+	}
+
 	stage('Build-platina-mk1-bmc') {
 	    steps {
 		sh 'make O=builds/platina-mk1-bmc platina-mk1-bmc_defconfig'
