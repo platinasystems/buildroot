@@ -27,25 +27,22 @@ pipeline {
 	    }
 	}
 
-	stage('Build-example-amd64') {
+	stage('Build') {
 	    steps {
-		sh 'make O=builds/example-amd64_defconfig example-amd64_defconfig'
-		sh 'make O=builds/example-amd64_defconfig all'
-	    }
-	}
-
-	stage('Build-platina-mk1') {
-	    steps {
-		sh 'make O=builds/platina-mk1 platina-mk1_defconfig'
-		sh 'make O=builds/platina-mk1 all'
-	    }
-	}
-
-	stage('Build-platina-mk1-bmc') {
-	    steps {
-		sh 'make O=builds/platina-mk1-bmc platina-mk1-bmc_defconfig'
-		sh 'make O=builds/platina-mk1-bmc all'
-	    }
+		parallel (
+		    "Build-example-amd64" : {
+			sh 'make O=builds/example-amd64_defconfig example-amd64_defconfig'
+			sh 'make O=builds/example-amd64_defconfig all'
+		    },
+		    "Build-platina-mk1" : {
+			sh 'make O=builds/platina-mk1 platina-mk1_defconfig'
+			sh 'make O=builds/platina-mk1 all'
+		    },
+		    "Build-platina-mk1-bmc" : {
+			sh 'make O=builds/platina-mk1-bmc platina-mk1-bmc_defconfig'
+			sh 'make O=builds/platina-mk1-bmc all'
+		    }
+		)
 	}
     }
 
