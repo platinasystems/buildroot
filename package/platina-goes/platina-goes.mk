@@ -48,6 +48,10 @@ ifeq ($(BR2_PACKAGE_PLATINA_GOES_MK1),y)
 PLATINA_GOES_TARGETS += goes-platina-mk1
 endif
 
+ifeq ($(BR2_PACKAGE_PLATINA_GOES_COREBOOT),y)
+PLATINA_GOES_TARGETS += goes-coreboot
+endif
+
 ifeq ($(BR2_PACKAGE_PLATINA_FE1),y)
 define PLATINA_GOES_COPY_FE1
 	mkdir -p $(PLATINA_GOES_GOPATH)/vnet/devices/ethernet/switch/fe1
