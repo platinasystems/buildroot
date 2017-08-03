@@ -48,6 +48,12 @@ config BR2_PACKAGE_PLATINA_GOES_MK1
        help
 	Example for Platina-MK1
 
+config BR2_PACKAGE_PLATINA_GOES_COREBOOT
+       bool "goes-coreboot"
+       depends on BR2_x86_64
+       help
+	Go-ES based chain loader based on kexec() syscall.
+
 endchoice
 
 config BR2_PACKAGE_PLATINA_GOES_TAGS
