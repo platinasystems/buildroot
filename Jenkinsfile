@@ -29,20 +29,7 @@ pipeline {
 
 	stage('Build') {
 	    steps {
-		parallel (
-		    "Build-example-amd64" : {
-			sh 'make O=builds/example-amd64_defconfig example-amd64_defconfig'
-			sh 'make O=builds/example-amd64_defconfig all'
-		    },
-		    "Build-platina-mk1" : {
-			sh 'make O=builds/platina-mk1 platina-mk1_defconfig'
-			sh 'make O=builds/platina-mk1 all'
-		    },
-		    "Build-platina-mk1-bmc" : {
-			sh 'make O=builds/platina-mk1-bmc platina-mk1-bmc_defconfig'
-			sh 'make O=builds/platina-mk1-bmc all'
-		    }
-		)
+	        sh 'docker build -t platina-buildroot .'
 	    }
 	}
     }
