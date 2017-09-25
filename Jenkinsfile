@@ -29,7 +29,7 @@ pipeline {
 
 	stage('Build') {
 	    steps {
-	        sh '[ -f Dockerfile ] && docker build -t platina-buildroot .'
+	        sh '[ -f Dockerfile ] && docker build -t platina-buildroot . || true'
 	    }
 	}
     }
