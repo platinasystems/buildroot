@@ -29,7 +29,9 @@ pipeline {
 
 	stage('Build') {
 	    steps {
-	        sh '[ -f Dockerfile ] && docker build -t platina-buildroot . || true'
+	    sh 'git fetch origin'
+	    sh 'git checkout remotes/origin/platina-2017.02'
+	    sh '[ -f Dockerfile ] && docker build -t platina-buildroot . || true'
 	    }
 	}
     }
