@@ -13,7 +13,7 @@ pipeline {
 	stage('Checkout') {
 	    steps {
 		echo "Running build #${env.BUILD_ID} on ${env.JENKINS_URL}"
-		checkout([$class: 'GitSCM', branches: [[name: '*/buildroot']],
+		checkout([$class: 'GitSCM', branches: [[name: '*/*']],
 		    doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [],
 		    userRemoteConfigs: [[url: 'https://github.com/platinasystems/buildroot.git']]])
 	    }
