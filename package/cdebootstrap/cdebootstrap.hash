@@ -1,3 +1,3 @@
 #From http://ftp.debian.org/debian/pool/main/c/cdebootstrap/cdebootstrap_0.7.7.dsc
-sha256 b298efa769e78fdf8830e1802fde9be4c7f0d54640a21953615dc4407de853b8 56320 cdebootstrap_0.7.7.tar.xz
-
+sha1 a949547d4d300d76174a98e7e1c98be27d40d4b4 cdebootstrap_0.7.7.tar.xz
+sha256 b298efa769e78fdf8830e1802fde9be4c7f0d54640a21953615dc4407de853b8 cdebootstrap_0.7.7.tar.xz
