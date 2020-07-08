@@ -1,0 +1,12 @@
+config BR2_PACKAGE_CDEBOOTSTRAP
+	bool "cdebootstrap"
+	select BR2_PACKAGE_LIBCURL
+	select BR2_PACKAGE_LIBDEBIAN_INSTALLER
+	select BR2_PACKAGE_ZLIB
+	select BR2_PACKAGE_BZIP2
+	select BR2_PACKAGE_XZ
+	help
+	  cdebootstrap generates systems from scratch for Debian and\
+	  derivates.
+
+	  https://packages.debian.org/cdebootstrap
