@@ -1,0 +1,7 @@
+config BR2_PACKAGE_DEBIAN_ARCHIVE_KEYRING
+	bool "debian-archive-keyring"
+	select BR2_PACKAGE_HOST_JETRING
+	help
+	  debian-archive-keyring contains the gpg keys used to
+	  authenticate Debian releases.
+
