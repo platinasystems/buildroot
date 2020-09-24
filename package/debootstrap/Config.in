@@ -1,0 +1,10 @@
+config BR2_PACKAGE_DEBOOTSTRAP
+	bool "debootstrap"
+	select BR2_PACKAGE_DEBIAN_ARCHIVE_KEYRING
+	depends on BR2_PACKAGE_BUSYBOX
+	depends on BR2_PACKAGE_PERL
+	help
+	  debootstrap generates systems from scratch for Debian and
+	  derivates.
+
+	  https://packages.debian.org/debootstrap
