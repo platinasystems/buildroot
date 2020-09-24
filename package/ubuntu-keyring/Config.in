@@ -1,0 +1,6 @@
+config BR2_PACKAGE_UBUNTU_KEYRING
+	bool "ubuntu-keyring"
+	help
+	  ubuntu-keyring contains the gpg keys used to
+	  authenticate Ubuntu releases.
+
