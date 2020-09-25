@@ -1,2 +1,3 @@
-# From http://snapshot.debian.org/archive/debian/20160218T041621Z/pool/main/libd/libdebian-installer/libdebian-installer_0.104.dsc
-sha256 5bf6c1b88e99164d0411f8434523f0f3b8e7e3902da17c55fee740ab34746ebf libdebian-installer_0.104.tar.xz
+# From http://http://snapshot.debian.org/archive/debian-debug/20160218T034808Z/pool/main/libd/libdebian-installer/libdebian-installer_0.120.dsc
+sha1 ababd364fcd051b6b555979aee7c953dce736ae4 libdebian-installer_0.120.tar.xz
+sha256 426a244ef8bca007c4825b48ceaceb42fe334f31175514c275054440b87793b4 libdebian-installer_0.120.tar.xz
